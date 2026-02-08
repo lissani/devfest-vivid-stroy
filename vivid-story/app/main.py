@@ -264,8 +264,8 @@ async def stream_story(
 ):
     """
     SSE Streaming endpoint - yields story pages and media immediately.
-    use_style_consistency=True: GPT Image 1로 마스터 스타일 프롬프트 추출 후, DALL-E 2로 페이지별 이미지 생성 (스타일 통일).
-    
+    use_style_consistency=True: Extract master style prompt with GPT Image 1, then generate per-page images with DALL-E 2 for consistent style.
+
     Event types:
     - story: Full story pages (JSON list)
     - scene: Individual page with image + audio
@@ -304,7 +304,7 @@ async def stream_story(
             yield f"data: {json.dumps({'type': 'story', 'pages': story_pages})}\n\n"
             
             # ========================================================
-            # STEP 1.5 (optional): 마스터 스타일 프롬프트 추출 (GPT-Image-1 revised_prompt)
+            # STEP 1.5 (optional): Extract master style prompt (GPT-Image-1 revised_prompt)
             # ========================================================
             master_prompt = None
             if use_style_consistency:
@@ -321,7 +321,7 @@ async def stream_story(
                     master_prompt = None
             
             # ========================================================
-            # STEP 2: 큐 형식 — 페이지 1부터 순서대로 이미지+음성 완료 시마다 즉시 프론트로 전송
+            # STEP 2: Queue — send to frontend immediately as each page (image+audio) completes, in order from page 1
             # ========================================================
             print(f"🎨 [STEP 2] Generating media for {num_images} pages (queue: page1 → send → page2 → send ...)")
             

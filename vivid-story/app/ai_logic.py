@@ -123,27 +123,27 @@ def generate_full_story(user_input):
 
 async def generate_story_pages(prompt: str, style: str = "fantasy") -> List[Dict]:
     """
-    비동기 래퍼: 기존 generate_full_story()를 비동기로 호출
-    FastAPI 백엔드와 통합하기 위한 함수
-    
+    Async wrapper: calls existing generate_full_story() asynchronously.
+    Used for FastAPI backend integration.
+
     Args:
-        prompt: 사용자가 입력한 스토리 주제/키워드
-        style: 스토리 스타일 (현재는 사용하지 않지만 향후 확장 가능)
-    
+        prompt: User-provided story topic/keywords
+        style: Story style (currently unused but reserved for future extension)
+
     Returns:
-        List[Dict]: 페이지별 스토리
+        List[Dict]: Story per page
         [
             {"page": 1, "text": "Once upon a time..."},
             {"page": 2, "text": "The brave robot..."},
             ...
         ]
-    
+
     Example:
         >>> pages = await generate_story_pages("brave robot in magical forest")
         >>> print(pages[0])
         {"page": 1, "text": "Once upon a time, in a magical forest..."}
     """
-    # 동기 함수를 비동기 환경에서 실행
+    # Run synchronous function in async context
     loop = asyncio.get_event_loop()
     pages = await loop.run_in_executor(None, generate_full_story, prompt)
     return pages
@@ -151,14 +151,14 @@ async def generate_story_pages(prompt: str, style: str = "fantasy") -> List[Dict
 
 async def get_page_text(pages: List[Dict], page_number: int) -> Optional[str]:
     """
-    특정 페이지의 텍스트만 추출
-    
+    Extract text for a specific page only.
+
     Args:
-        pages: 페이지 리스트
-        page_number: 페이지 번호 (1-based)
-    
+        pages: List of pages
+        page_number: Page number (1-based)
+
     Returns:
-        해당 페이지의 텍스트, 없으면 None
+        Text for that page, or None if not found
     """
     for page in pages:
         if page.get("page") == page_number:
@@ -168,13 +168,13 @@ async def get_page_text(pages: List[Dict], page_number: int) -> Optional[str]:
 
 def get_full_story_text(pages: List[Dict]) -> str:
     """
-    페이지 리스트를 하나의 텍스트로 결합
-    
+    Concatenate page list into a single text.
+
     Args:
-        pages: 페이지 리스트
-    
+        pages: List of pages
+
     Returns:
-        전체 스토리 텍스트 (페이지 구분 없이)
+        Full story text (no page boundaries)
     """
     return " ".join([page.get("text", "") for page in pages])
 

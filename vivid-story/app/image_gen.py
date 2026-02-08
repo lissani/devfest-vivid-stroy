@@ -23,7 +23,7 @@ DEFAULT_COMPRESSION = 85
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 
-# 마스터 스타일 프롬프트용 (멀티모달 미지원 시 텍스트로 스타일 통일)
+# Master style prompt (text-based style consistency when multimodal is not supported)
 MASTER_STYLE_MODEL = "openai/gpt-image-1"
 PAGE_GEN_MODEL = "openai/dall-e-2"
 BASE_ART_STYLE = "Cute, hand-drawn children’s picture-book illustration with a soft crayon-like texture, warm and kid-friendly, no text."
@@ -83,9 +83,9 @@ async def call_dedalus_api(
     }
     
     # Add specific model parameters
-    # model="openai/gpt-image-1" (최고 품질)
-    # model="openai/dall-e-3" (프롬프트 자동 개선)
-    # model="openai/dall-e-2" (빠르고 저렴)
+    # model="openai/gpt-image-1" (highest quality)
+    # model="openai/dall-e-3" (auto-improved prompts)
+    # model="openai/dall-e-2" (fast and cost-effective)
     if model == "openai/dall-e-2":
         payload["output_format"] = output_format
         payload["output_compression"] = output_compression
@@ -195,8 +195,8 @@ def simple_split_story(story: str, num_scenes: int) -> List[str]:
 
 async def generate_master_prompt(user_input: str) -> str:
     """
-    GPT-Image-1으로 마스터 스타일 프롬프트를 확립합니다.
-    Dedalus 멀티모달 미지원 시, revised_prompt를 추출해 동화 전체 화풍으로 사용합니다.
+    Establish master style prompt using GPT-Image-1.
+    When Dedalus multimodal is not supported, use revised_prompt as the story-wide art style.
     """
     print(f"\n✨ Establishing Master Style using {MASTER_STYLE_MODEL}...")
     initial_prompt = f"{BASE_ART_STYLE} {user_input}"
@@ -218,9 +218,9 @@ async def generate_master_prompt(user_input: str) -> str:
 
 async def generate_images(story: str, num_images: int = 4) -> List[str]:
     """
-    마스터 프롬프트를 기반으로 여러 페이지 이미지를 생성합니다.
-    1) 첫 씬으로 GPT-Image-1에서 마스터 스타일 프롬프트 추출
-    2) 각 씬은 DALL-E 2로 마스터 스타일 + 씬 설명 조합하여 생성
+    Generate multiple page images based on master prompt.
+    1) Extract master style prompt from GPT-Image-1 using the first scene
+    2) Each scene is generated with DALL-E 2 by combining master style + scene description
     """
     try:
         print(f"Splitting story into {num_images} scenes...")
@@ -229,7 +229,7 @@ async def generate_images(story: str, num_images: int = 4) -> List[str]:
             print("No scenes generated from story")
             return []
 
-        # 첫 씬으로 마스터 스타일 프롬프트 확립 (GPT-Image-1 revised_prompt 사용)
+        # Establish master style prompt from first scene (GPT-Image-1 revised_prompt)
         master_style_prompt = await generate_master_prompt(scenes[0])
 
         image_paths = []
@@ -442,15 +442,15 @@ async def generate_image_for_page(
     master_prompt: Optional[str] = None,
 ) -> str:
     """
-    페이지 단위로 이미지 생성 (백엔드 통합용).
-    master_prompt가 있으면 마스터 스타일 + 페이지 텍스트로 DALL-E 2 사용 (스타일 일관).
+    Generate image per page (for backend integration).
+    If master_prompt is provided, use DALL-E 2 with master style + page text for style consistency.
 
     Args:
-        page: 페이지 정보 {"page": 1, "text": "..."}
-        master_prompt: 선택. 동화 전체 화풍 프롬프트 (GPT-Image-1 revised_prompt)
+        page: Page info {"page": 1, "text": "..."}
+        master_prompt: Optional. Story-wide art style prompt (GPT-Image-1 revised_prompt)
 
     Returns:
-        생성된 이미지의 경로/URL, 실패시 빈 문자열
+        Path/URL of generated image, or empty string on failure
     """
     try:
         page_num = page.get("page", 0)
