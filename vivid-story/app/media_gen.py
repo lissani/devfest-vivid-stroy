@@ -17,12 +17,14 @@ client = ElevenLabs(
 )
 
 # Voice name → ElevenLabs voice_id (for pipeline compatibility)
+# Free tier can only use PREMADE voices, not "library" (custom/premium) voices.
+# Rachel = premade, works on free tier. See: https://elevenlabs.io/docs/api-reference/voices
 VOICE_IDS = {
-    "default": "XJ2fW4ybq7HouelYYGcL",
+    "default": "21m00Tcm4TlvDq8ikWAM",  # Rachel (premade, free-tier compatible)
 }
 
 
-async def generate_story_audio(text_to_speak: str, voice_id: str = "XJ2fW4ybq7HouelYYGcL"):
+async def generate_story_audio(text_to_speak: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM"):
     """
     Turns story text into a kid-friendly mp3 file and returns the file path.
     Updated with your specific Kid Voice ID.
@@ -59,7 +61,29 @@ async def generate_story_audio(text_to_speak: str, voice_id: str = "XJ2fW4ybq7Ho
         return file_path
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        # ElevenLabs API errors often have .body with detail message
+        msg = str(e)
+        if hasattr(e, "body") and isinstance(getattr(e, "body"), dict):
+            detail = (e.body or {}).get("detail") or {}
+            if isinstance(detail, dict):
+                if detail.get("status") == "quota_exceeded":
+                    msg = (
+                        f"ElevenLabs quota exceeded: {detail.get('message', msg)}. "
+                        "Add credits at https://elevenlabs.io or use a different API key."
+                    )
+                elif detail.get("status") == "payment_required" or "library voices" in (detail.get("message") or "").lower():
+                    msg = (
+                        "ElevenLabs free tier cannot use library/premium voices. "
+                        "Use a premade voice (e.g. Rachel) in VOICE_IDS in media_gen.py."
+                    )
+                elif "message" in detail:
+                    msg = detail["message"]
+        elif "quota_exceeded" in msg.lower():
+            msg = (
+                "ElevenLabs quota exceeded (not enough credits). "
+                "Add credits at https://elevenlabs.io or use a different API key."
+            )
+        print(f"❌ Audio error: {msg}")
         return None
 
 
