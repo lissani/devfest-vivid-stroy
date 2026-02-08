@@ -3,6 +3,8 @@ import requests
 import os
 import sys
 import re
+import asyncio
+from typing import List, Dict, Optional
 
 
 # ==========================
@@ -111,5 +113,67 @@ def generate_full_story(user_input):
     story = extract_final_story(story)
     story = story_to_pages_json(story)
     return story
+
+
+# ==========================
+# ASYNC WRAPPERS FOR FASTAPI
+# ==========================
+
+async def generate_story_pages(prompt: str, style: str = "fantasy") -> List[Dict]:
+    """
+    비동기 래퍼: 기존 generate_full_story()를 비동기로 호출
+    FastAPI 백엔드와 통합하기 위한 함수
+    
+    Args:
+        prompt: 사용자가 입력한 스토리 주제/키워드
+        style: 스토리 스타일 (현재는 사용하지 않지만 향후 확장 가능)
+    
+    Returns:
+        List[Dict]: 페이지별 스토리
+        [
+            {"page": 1, "text": "Once upon a time..."},
+            {"page": 2, "text": "The brave robot..."},
+            ...
+        ]
+    
+    Example:
+        >>> pages = await generate_story_pages("brave robot in magical forest")
+        >>> print(pages[0])
+        {"page": 1, "text": "Once upon a time, in a magical forest..."}
+    """
+    # 동기 함수를 비동기 환경에서 실행
+    loop = asyncio.get_event_loop()
+    pages = await loop.run_in_executor(None, generate_full_story, prompt)
+    return pages
+
+
+async def get_page_text(pages: List[Dict], page_number: int) -> Optional[str]:
+    """
+    특정 페이지의 텍스트만 추출
+    
+    Args:
+        pages: 페이지 리스트
+        page_number: 페이지 번호 (1-based)
+    
+    Returns:
+        해당 페이지의 텍스트, 없으면 None
+    """
+    for page in pages:
+        if page.get("page") == page_number:
+            return page.get("text")
+    return None
+
+
+def get_full_story_text(pages: List[Dict]) -> str:
+    """
+    페이지 리스트를 하나의 텍스트로 결합
+    
+    Args:
+        pages: 페이지 리스트
+    
+    Returns:
+        전체 스토리 텍스트 (페이지 구분 없이)
+    """
+    return " ".join([page.get("text", "") for page in pages])
 
 
