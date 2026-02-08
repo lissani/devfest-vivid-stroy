@@ -17,7 +17,7 @@ from pathlib import Path
 DEDALUS_API_URL = "https://api.dedaluslabs.ai/v1/images/generations"
 DEFAULT_MODEL = "openai/dall-e-3"
 DEFAULT_QUALITY = "standard"
-DEFAULT_SIZE = "512x512"  # Landscape for storybook
+DEFAULT_SIZE = "1792x1024"  # Supported: 1024x1024, 1024x1792, 1792x1024 (512x512 no longer supported)
 DEFAULT_OUTPUT_FORMAT = "webp"
 DEFAULT_COMPRESSION = 85
 MAX_RETRIES = 3
@@ -242,7 +242,7 @@ async def generate_images(story: str, num_images: int = 4) -> List[str]:
                 response = await call_dedalus_api(
                     prompt=combined_prompt[:990],
                     model=PAGE_GEN_MODEL,
-                    size="512x512",
+                    size=DEFAULT_SIZE,
                     quality="standard",
                     n=1,
                 )
@@ -467,7 +467,7 @@ async def generate_image_for_page(
             response = await call_dedalus_api(
                 prompt=combined[:990],
                 model=PAGE_GEN_MODEL,
-                size="512x512",
+                size=DEFAULT_SIZE,
                 quality="standard",
                 n=1,
             )
