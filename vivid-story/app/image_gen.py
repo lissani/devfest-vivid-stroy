@@ -17,7 +17,7 @@ from pathlib import Path
 DEDALUS_API_URL = "https://api.dedaluslabs.ai/v1/images/generations"
 DEFAULT_MODEL = "openai/dall-e-3"
 DEFAULT_QUALITY = "standard"
-DEFAULT_SIZE = "1024x1024"  # Landscape for storybook
+DEFAULT_SIZE = "512x512"  # Landscape for storybook
 DEFAULT_OUTPUT_FORMAT = "webp"
 DEFAULT_COMPRESSION = 85
 MAX_RETRIES = 3

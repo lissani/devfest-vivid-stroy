@@ -1,0 +1,25 @@
+# FastAPI & Server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# Streamlit UI
+streamlit==1.31.0
+
+# AI & ML
+# google-generativeai==0.3.2
+# google-cloud-aiplatform==1.38.1
+
+# Audio/Image Processing
+requests==2.31.0
+pillow==10.2.0
+
+# Utilities
+python-dotenv==1.0.0
+python-multipart==0.0.6
+
+# Optional: K2 Think (추가 필요 시)
+# k2-think==x.x.x
+
+# Optional: ElevenLabs
+elevenlabs==0.2.27
