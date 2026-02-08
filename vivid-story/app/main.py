@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 import uvicorn
 import asyncio
 import time
@@ -36,9 +36,7 @@ class StoryRequest(BaseModel):
 
 class StoryResponse(BaseModel):
     """Story generation response to Streamlit Frontend"""
-    story_text: str
-    image_urls: List[str]
-    audio_url: str
+    story_pages: List[Dict]  # Changed from story_text to story_pages
     metadata: dict
 
 
@@ -66,164 +64,180 @@ async def health_check():
     }
 
 
-@app.post("/api/generate-story", response_model=StoryResponse)
-async def generate_story(request: StoryRequest):
-    """
-    Core Orchestration: Story Generation Pipeline
+# @app.post("/api/generate-story", response_model=StoryResponse)
+# async def generate_story(request: StoryRequest):
+#     """
+#     Core Orchestration: Story Generation Pipeline
     
-    Architecture Flow:
-    1. Step 1: Sequential Reasoning (K2 Think)
-       - Generate story text from keyword/theme
-       - Create scene prompts for images
+#     Architecture Flow:
+#     1. Step 1: Sequential Reasoning (K2 Think)
+#        - Generate story pages from keyword/theme
+#        - Returns list of pages: [{"page": 1, "text": "..."}, ...]
     
-    2. Logic Controller: Decide parallel execution
+#     2. Logic Controller: Decide parallel execution
     
-    3. Step 2: Parallel Media Generation
-       - Image Generation (Dedalus Labs / DALL-E 3) - 4 scenes
-       - Audio Synthesis (ElevenLabs API)
+#     3. Step 2: Parallel Media Generation (per page)
+#        - Image Generation (Dedalus Labs / DALL-E 3)
+#        - Audio Synthesis (ElevenLabs API)
     
-    4. Result Formatter: Aggregate and return
-    """
-    start_time = time.time()
+#     4. Result Formatter: Aggregate and return
+#     """
+#     start_time = time.time()
     
-    try:
-        print(f"\n{'='*60}")
-        print(f"📚 Story Generation Request")
-        print(f"{'='*60}")
-        print(f"Prompt: {request.prompt}")
-        print(f"Style: {request.style}")
-        print(f"Voice: {request.voice}")
-        print(f"Images: {request.num_images}")
-        print(f"{'='*60}\n")
+#     try:
+#         print(f"\n{'='*60}")
+#         print(f"📚 Story Generation Request")
+#         print(f"{'='*60}")
+#         print(f"Prompt: {request.prompt}")
+#         print(f"Style: {request.style}")
+#         print(f"Voice: {request.voice}")
+#         print(f"Images: {request.num_images}")
+#         print(f"{'='*60}\n")
         
-        # ================================================================
-        # STEP 1: Sequential Reasoning (K2 Think)
-        # ================================================================
-        print("🧠 [STEP 1] Sequential Reasoning - K2 Think")
-        print("-" * 60)
+#         # ================================================================
+#         # STEP 1: Sequential Reasoning (K2 Think)
+#         # ================================================================
+#         print("🧠 [STEP 1] Sequential Reasoning - K2 Think")
+#         print("-" * 60)
         
-        from app.ai_logic import generate_story_text
+#         from app.ai_logic import generate_story_pages, get_full_story_text
         
-        step1_start = time.time()
-        story_text = await generate_story_text(request.prompt, request.style)
-        step1_duration = time.time() - step1_start
+#         step1_start = time.time()
+#         story_pages = await generate_story_pages(request.prompt, request.style)
+#         step1_duration = time.time() - step1_start
         
-        if not story_text:
-            raise HTTPException(
-                status_code=500,
-                detail="Story generation failed - no content returned"
-            )
+#         if not story_pages:
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail="Story generation failed - no pages returned"
+#             )
         
-        print(f"✅ Story generated ({len(story_text)} chars)")
-        print(f"⏱️  Duration: {step1_duration:.2f}s")
-        print(f"📖 Preview: {story_text[:150]}...\n")
+#         print(f"✅ Story generated: {len(story_pages)} pages")
+#         print(f"⏱️  Duration: {step1_duration:.2f}s")
+#         print(f"📖 Page 1 preview: {story_pages[0].get('text', '')[:100]}...\n")
         
-        # ================================================================
-        # LOGIC CONTROLLER: Parallel Execution Decision
-        # ================================================================
-        print("🎯 [LOGIC CONTROLLER] Starting parallel media generation")
-        print("-" * 60)
+#         # ================================================================
+#         # LOGIC CONTROLLER: Parallel Execution Decision
+#         # ================================================================
+#         print("🎯 [LOGIC CONTROLLER] Starting parallel media generation per page")
+#         print("-" * 60)
         
-        # ================================================================
-        # STEP 2: Parallel Media Generation
-        # ================================================================
-        step2_start = time.time()
+#         # ================================================================
+#         # STEP 2: Parallel Media Generation (per page)
+#         # ================================================================
+#         step2_start = time.time()
         
-        # Import both modules
-        from app.image_gen import generate_images
-        from app.media_gen import generate_audio
+#         # Import both modules
+#         from app.image_gen import generate_image_for_page
+#         from app.media_gen import generate_audio_for_page
         
-        # Execute in parallel using asyncio.gather
-        print("🚀 Launching parallel tasks:")
-        print("   → Image Generation (Dedalus/DALL-E)")
-        print("   → Audio Synthesis (ElevenLabs)\n")
+#         # Limit to requested number of images
+#         pages_to_process = story_pages[:request.num_images]
         
-        results = await asyncio.gather(
-            # Parallel Task 1: Image Generation
-            generate_images(story_text, num_images=request.num_images),
+#         print(f"🚀 Processing {len(pages_to_process)} pages in parallel...")
+#         print("   Each page: [Image Gen] + [Audio Gen]\n")
+        
+#         # Create tasks for each page
+#         async def process_page(page: Dict) -> Dict:
+#             """Process single page: generate image and audio"""
+#             page_num = page.get("page", 0)
+#             page_text = page.get("text", "")
             
-            # Parallel Task 2: Audio Generation
-            generate_audio(story_text, voice=request.voice),
-            
-            # Return exceptions instead of raising them
-            return_exceptions=True
-        )
+#             try:
+#                 # Generate image and audio in parallel
+#                 image_url, audio_url = await asyncio.gather(
+#                     generate_image_for_page(page),
+#                     generate_audio_for_page(page, request.voice),
+#                     return_exceptions=True
+#                 )
+                
+#                 # Handle exceptions
+#                 if isinstance(image_url, Exception):
+#                     print(f"⚠️  Page {page_num} image error: {image_url}")
+#                     image_url = ""
+                
+#                 if isinstance(audio_url, Exception):
+#                     print(f"⚠️  Page {page_num} audio error: {audio_url}")
+#                     audio_url = ""
+                
+#                 return {
+#                     "page": page_num,
+#                     "text": page_text,
+#                     "image_url": image_url,
+#                     "audio_url": audio_url
+#                 }
+#             except Exception as e:
+#                 print(f"⚠️  Page {page_num} processing error: {e}")
+#                 return {
+#                     "page": page_num,
+#                     "text": page_text,
+#                     "image_url": "",
+#                     "audio_url": ""
+#                 }
         
-        step2_duration = time.time() - step2_start
+#         # Process all pages in parallel
+#         processed_pages = await asyncio.gather(
+#             *[process_page(page) for page in pages_to_process],
+#             return_exceptions=True
+#         )
         
-        # Extract results
-        image_urls = results[0] if not isinstance(results[0], Exception) else []
-        audio_url = results[1] if not isinstance(results[1], Exception) else ""
+#         # Filter out exceptions
+#         processed_pages = [p for p in processed_pages if not isinstance(p, Exception)]
         
-        # Handle partial failures
-        if isinstance(results[0], Exception):
-            print(f"⚠️  Image generation error: {results[0]}")
-            image_urls = []
-        else:
-            print(f"✅ Images generated: {len(image_urls)} files")
+#         step2_duration = time.time() - step2_start
         
-        if isinstance(results[1], Exception):
-            print(f"⚠️  Audio generation error: {results[1]}")
-            audio_url = ""
-        else:
-            print(f"✅ Audio generated: {audio_url}")
+#         print(f"✅ Media generation completed")
+#         print(f"⏱️  Parallel duration: {step2_duration:.2f}s\n")
         
-        print(f"⏱️  Parallel duration: {step2_duration:.2f}s\n")
+#         # ================================================================
+#         # RESULT FORMATTER: Aggregate all results
+#         # ================================================================
+#         print("📦 [RESULT FORMATTER] Aggregating results")
+#         print("-" * 60)
         
-        # ================================================================
-        # RESULT FORMATTER: Aggregate all results
-        # ================================================================
-        print("📦 [RESULT FORMATTER] Aggregating results")
-        print("-" * 60)
+#         total_duration = time.time() - start_time
         
-        total_duration = time.time() - start_time
+#         # Build metadata
+#         metadata = {
+#             "total_duration": round(total_duration, 2),
+#             "step1_duration": round(step1_duration, 2),
+#             "step2_duration": round(step2_duration, 2),
+#             "total_pages": len(story_pages),
+#             "processed_pages": len(processed_pages),
+#             "timestamp": datetime.now().isoformat(),
+#             "request": {
+#                 "prompt": request.prompt,
+#                 "style": request.style,
+#                 "voice": request.voice,
+#                 "num_images": request.num_images
+#             }
+#         }
         
-        # Build metadata
-        metadata = {
-            "total_duration": round(total_duration, 2),
-            "step1_duration": round(step1_duration, 2),
-            "step2_duration": round(step2_duration, 2),
-            "story_length": len(story_text),
-            "images_generated": len(image_urls),
-            "audio_generated": bool(audio_url),
-            "timestamp": datetime.now().isoformat(),
-            "request": {
-                "prompt": request.prompt,
-                "style": request.style,
-                "voice": request.voice,
-                "num_images": request.num_images
-            }
-        }
+#         response = StoryResponse(
+#             story_pages=processed_pages,
+#             metadata=metadata
+#         )
         
-        response = StoryResponse(
-            story_text=story_text,
-            image_urls=image_urls,
-            audio_url=audio_url,
-            metadata=metadata
-        )
+#         print(f"✅ Final response ready")
+#         print(f"⏱️  Total time: {total_duration:.2f}s")
+#         print(f"📊 Pages: {len(processed_pages)}")
+#         print(f"{'='*60}\n")
         
-        print(f"✅ Final response ready")
-        print(f"⏱️  Total time: {total_duration:.2f}s")
-        print(f"📊 Story: {len(story_text)} chars")
-        print(f"🖼️  Images: {len(image_urls)}")
-        print(f"🔊 Audio: {'Yes' if audio_url else 'No'}")
-        print(f"{'='*60}\n")
+#         return response
         
-        return response
-        
-    except Exception as e:
-        print(f"\n❌ Error in story generation pipeline: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         print(f"\n❌ Error in story generation pipeline: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/stream-story")
 async def stream_story(prompt: str, style: str = "fantasy", voice: str = "default", num_images: int = 4):
     """
-    SSE Streaming endpoint - yields each scene immediately as it's generated
+    SSE Streaming endpoint - yields story pages and media immediately
     
     Event types:
-    - story: Full story text
-    - scene: Individual scene with image + audio
+    - story: Full story pages (JSON list)
+    - scene: Individual page with image + audio
     - complete: Generation finished
     - error: Error occurred
     """
@@ -240,40 +254,72 @@ async def stream_story(prompt: str, style: str = "fantasy", voice: str = "defaul
             print(f"{'='*60}\n")
             
             # ========================================================
-            # STEP 1: Generate story text with K2 Think
+            # STEP 1: Generate story pages with K2 Think
             # ========================================================
-            print("🧠 [STEP 1] Generating story with K2 Think...")
+            print("🧠 [STEP 1] Generating story pages with K2 Think...")
             
-            from app.ai_logic import generate_story_text
+            from app.ai_logic import generate_story_pages
             
-            story_text = await generate_story_text(prompt, style)
+            story_pages = await generate_story_pages(prompt, style)
             
-            if not story_text:
+            if not story_pages:
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Story generation failed'})}\n\n"
                 return
             
-            print(f"✅ Story generated: {len(story_text)} chars")
+            print(f"✅ Story generated: {len(story_pages)} pages")
             
-            # Send story text immediately
-            yield f"data: {json.dumps({'type': 'story', 'text': story_text})}\n\n"
+            # Send all story pages immediately
+            yield f"data: {json.dumps({'type': 'story', 'pages': story_pages})}\n\n"
             
             # ========================================================
-            # STEP 2: Generate scenes in parallel and yield instantly
+            # STEP 2: Generate media for each page in parallel
             # ========================================================
-            print(f"🎨 [STEP 2] Generating {num_images} scenes in parallel...")
+            print(f"🎨 [STEP 2] Generating media for {num_images} pages in parallel...")
             
-            from app.image_gen import generate_single_scene_with_audio
+            from app.image_gen import generate_image_for_page
+            from app.media_gen import generate_audio_for_page
             
-            # Create tasks for all scenes
-            tasks = []
-            for scene_idx in range(num_images):
-                task = generate_single_scene_with_audio(
-                    story_text=story_text,
-                    scene_index=scene_idx,
-                    total_scenes=num_images,
-                    voice=voice
-                )
-                tasks.append(task)
+            # Limit to requested number of pages
+            pages_to_process = story_pages[:num_images]
+            
+            # Create task for each page
+            async def process_page(page: Dict) -> Optional[Dict]:
+                """Generate image and audio for one page"""
+                page_num = page.get("page", 0)
+                page_text = page.get("text", "")
+                
+                try:
+                    print(f"🎬 Processing page {page_num}...")
+                    
+                    # Generate image and audio in parallel
+                    image_url, audio_url = await asyncio.gather(
+                        generate_image_for_page(page),
+                        generate_audio_for_page(page, voice),
+                        return_exceptions=True
+                    )
+                    
+                    # Handle exceptions
+                    if isinstance(image_url, Exception):
+                        print(f"⚠️  Page {page_num} image error: {image_url}")
+                        image_url = ""
+                    
+                    if isinstance(audio_url, Exception):
+                        print(f"⚠️  Page {page_num} audio error: {audio_url}")
+                        audio_url = ""
+                    
+                    return {
+                        "scene_index": page_num - 1,  # 0-based for frontend compatibility
+                        "page": page_num,
+                        "scene_text": page_text,
+                        "image_url": image_url,
+                        "audio_url": audio_url
+                    }
+                except Exception as e:
+                    print(f"⚠️  Page {page_num} processing error: {e}")
+                    return None
+            
+            # Create tasks for all pages
+            tasks = [process_page(page) for page in pages_to_process]
             
             # Use asyncio.as_completed to yield results as they finish
             for completed_task in asyncio.as_completed(tasks):
@@ -281,7 +327,7 @@ async def stream_story(prompt: str, style: str = "fantasy", voice: str = "defaul
                     scene_result = await completed_task
                     
                     if scene_result:
-                        print(f"✅ Scene {scene_result['scene_index']} ready - sending to client")
+                        print(f"✅ Page {scene_result['page']} ready - sending to client")
                         
                         # Send scene immediately when ready
                         yield f"data: {json.dumps({'type': 'scene', **scene_result})}\n\n"
@@ -293,7 +339,7 @@ async def stream_story(prompt: str, style: str = "fantasy", voice: str = "defaul
             # ========================================================
             # STEP 3: Send completion signal
             # ========================================================
-            print("✅ All scenes completed - sending finish signal")
+            print("✅ All pages completed - sending finish signal")
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             
             print(f"{'='*60}")

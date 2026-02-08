@@ -271,7 +271,7 @@ async def generate_images(story: str, num_images: int = 4) -> List[str]:
         return []
 
 
-async def generate_imagen_image(
+async def generate_image(
     prompt: str,
     output_path: Optional[str] = None,
     model: str = DEFAULT_MODEL,
@@ -352,7 +352,7 @@ async def test_single_image():
     
     print(f"\nPrompt: {prompt}\n")
     
-    result = await generate_imagen_image(
+    result = await generate_image(
         prompt=prompt,
         quality="standard",  # Use standard for faster testing
         size="1024x1024"   # Square format for testing
@@ -428,60 +428,106 @@ async def test_api_configuration():
     return True
 
 
-async def generate_single_scene_with_audio(
-    story_text: str,
-    scene_index: int,
-    total_scenes: int,
-    voice: str = "default"
-) -> Optional[Dict[str, Any]]:
-    """
-    Generate a single scene (image only) for SSE streaming
+# async def generate_single_scene(
+#     story_text: str,
+#     scene_index: int,
+#     total_scenes: int,
+#     voice: str = "default"
+# ) -> Optional[Dict[str, Any]]:
+#     """
+#     Generate a single scene (image only) for SSE streaming
     
-    Note: Audio generation is handled separately by media_gen.py team
+#     Note: Audio generation is handled separately by media_gen.py team
+    
+#     Args:
+#         story_text: Full story text
+#         scene_index: Index of this scene (0-based)
+#         total_scenes: Total number of scenes
+#         voice: Voice parameter (reserved for future audio integration)
+    
+#     Returns:
+#         Dict with scene_index, image_url, scene_text
+#     """
+#     try:
+#         print(f"🎬 Generating scene {scene_index + 1}/{total_scenes}...")
+        
+#         # Split story into scenes
+#         scenes = simple_split_story(story_text, total_scenes)
+        
+#         if scene_index >= len(scenes):
+#             print(f"⚠️ Scene index {scene_index} out of range")
+#             return None
+        
+#         scene_text = scenes[scene_index]
+        
+#         # Generate image using existing function
+#         image_url = await generate_image(
+#             prompt=scene_text,
+#             model=DEFAULT_MODEL,
+#             size=DEFAULT_SIZE,
+#             quality=DEFAULT_QUALITY
+#         )
+        
+#         result = {
+#             "scene_index": scene_index,
+#             "scene_text": scene_text,
+#             "image_url": image_url,
+#             "audio_url": "",  # Will be populated by media_gen.py team
+#             "timestamp": datetime.now().isoformat()
+#         }
+        
+#         print(f"✅ Scene {scene_index + 1} image completed: {image_url}")
+#         return result
+        
+#     except Exception as e:
+#         print(f"❌ Error generating scene {scene_index}: {e}")
+#         return None
+
+
+async def generate_image_for_page(page: Dict) -> str:
+    """
+    페이지 단위로 이미지 생성 (백엔드 통합용)
     
     Args:
-        story_text: Full story text
-        scene_index: Index of this scene (0-based)
-        total_scenes: Total number of scenes
-        voice: Voice parameter (reserved for future audio integration)
+        page: 페이지 정보 {"page": 1, "text": "..."}
     
     Returns:
-        Dict with scene_index, image_url, scene_text
+        생성된 이미지의 경로/URL, 실패시 빈 문자열
+    
+    Example:
+        >>> page = {"page": 1, "text": "Once upon a time in a magical forest..."}
+        >>> image_url = await generate_image_for_page(page)
+        >>> print(image_url)  # "data/image_20260207_123456_abc123_0.webp"
     """
     try:
-        print(f"🎬 Generating scene {scene_index + 1}/{total_scenes}...")
+        page_num = page.get("page", 0)
+        page_text = page.get("text", "")
         
-        # Split story into scenes
-        scenes = simple_split_story(story_text, total_scenes)
+        if not page_text:
+            print(f"⚠️ Page {page_num} has no text")
+            return ""
         
-        if scene_index >= len(scenes):
-            print(f"⚠️ Scene index {scene_index} out of range")
-            return None
+        print(f"🎨 Generating image for page {page_num}...")
+        print(f"   Text: {page_text[:80]}...")
         
-        scene_text = scenes[scene_index]
-        
-        # Generate image using existing function
-        image_url = await generate_imagen_image(
-            prompt=scene_text,
+        # Generate image using Dedalus API
+        image_url = await generate_image(
+            prompt=page_text,
             model=DEFAULT_MODEL,
             size=DEFAULT_SIZE,
             quality=DEFAULT_QUALITY
         )
         
-        result = {
-            "scene_index": scene_index,
-            "scene_text": scene_text,
-            "image_url": image_url,
-            "audio_url": "",  # Will be populated by media_gen.py team
-            "timestamp": datetime.now().isoformat()
-        }
+        if image_url:
+            print(f"✅ Image generated for page {page_num}: {image_url}")
+        else:
+            print(f"❌ Failed to generate image for page {page_num}")
         
-        print(f"✅ Scene {scene_index + 1} image completed: {image_url}")
-        return result
+        return image_url
         
     except Exception as e:
-        print(f"❌ Error generating scene {scene_index}: {e}")
-        return None
+        print(f"❌ Error generating image for page: {e}")
+        return ""
 
 
 async def run_all_tests():
