@@ -23,6 +23,11 @@ DEFAULT_COMPRESSION = 85
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 
+# 마스터 스타일 프롬프트용 (멀티모달 미지원 시 텍스트로 스타일 통일)
+MASTER_STYLE_MODEL = "openai/gpt-image-1"
+PAGE_GEN_MODEL = "openai/dall-e-2"
+BASE_ART_STYLE = "Cute, hand-drawn children’s picture-book illustration with a soft crayon-like texture, warm and kid-friendly, no text."
+
 
 def get_api_key() -> str:
     """Get Dedalus API key from environment"""
@@ -188,56 +193,68 @@ def simple_split_story(story: str, num_scenes: int) -> List[str]:
     return scenes[:num_scenes]
 
 
+async def generate_master_prompt(user_input: str) -> str:
+    """
+    GPT-Image-1으로 마스터 스타일 프롬프트를 확립합니다.
+    Dedalus 멀티모달 미지원 시, revised_prompt를 추출해 동화 전체 화풍으로 사용합니다.
+    """
+    print(f"\n✨ Establishing Master Style using {MASTER_STYLE_MODEL}...")
+    initial_prompt = f"{BASE_ART_STYLE} {user_input}"
+
+    response = await call_dedalus_api(
+        prompt=initial_prompt,
+        model=MASTER_STYLE_MODEL,
+        quality="high",
+        size="1024x1024",
+    )
+
+    revised = (response.get("data") or [{}])[0].get("revised_prompt", "")
+    if not revised:
+        revised = initial_prompt
+
+    print(f"✅ Master Style Fixed: {revised[:100]}...")
+    return revised
+
+
 async def generate_images(story: str, num_images: int = 4) -> List[str]:
     """
-    Generate multiple images from story using Dedalus API
-    
-    Args:
-        story: Story text to generate images from (will be JSON list later)
-        num_images: Number of images to generate
-    
-    Returns:
-        List of paths to generated images
+    마스터 프롬프트를 기반으로 여러 페이지 이미지를 생성합니다.
+    1) 첫 씬으로 GPT-Image-1에서 마스터 스타일 프롬프트 추출
+    2) 각 씬은 DALL-E 2로 마스터 스타일 + 씬 설명 조합하여 생성
     """
     try:
         print(f"Splitting story into {num_images} scenes...")
         scenes = simple_split_story(story, num_images)
-        
         if not scenes:
             print("No scenes generated from story")
             return []
-        
+
+        # 첫 씬으로 마스터 스타일 프롬프트 확립 (GPT-Image-1 revised_prompt 사용)
+        master_style_prompt = await generate_master_prompt(scenes[0])
+
         image_paths = []
-        
-        # Generate images for each scene
         for idx, scene in enumerate(scenes[:num_images]):
             try:
-                print(f"\n[{idx+1}/{num_images}] Generating image for scene:")
-                print(f"  {scene[:100]}...")
-                
-                # Call API
+                print(f"\n[{idx+1}/{num_images}] Generating page with {PAGE_GEN_MODEL}...")
+                combined_prompt = f"{BASE_ART_STYLE} {master_style_prompt}. In this scene: {scene}"
+
                 start_time = time.time()
                 response = await call_dedalus_api(
-                    prompt=scene,
-                    model=DEFAULT_MODEL,
-                    size=DEFAULT_SIZE,
-                    quality=DEFAULT_QUALITY,
-                    n=1
+                    prompt=combined_prompt[:990],
+                    model=PAGE_GEN_MODEL,
+                    size="512x512",
+                    quality="standard",
+                    n=1,
                 )
-                
                 elapsed = time.time() - start_time
                 print(f"  API call completed in {elapsed:.2f}s")
-                
-                # Extract and save image
+
                 if response.get("data") and len(response["data"]) > 0:
                     image_data = response["data"][0]
-                    
-                    # Generate output path
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename = f"image_{timestamp}_{uuid.uuid4().hex[:8]}_{idx}.{DEFAULT_OUTPUT_FORMAT}"
                     output_path = os.path.join("data", filename)
-                    
-                    # Save image
+
                     if image_data.get("b64_json"):
                         saved_path = save_base64_image(
                             image_data["b64_json"],
@@ -247,25 +264,17 @@ async def generate_images(story: str, num_images: int = 4) -> List[str]:
                         if saved_path:
                             image_paths.append(saved_path)
                     elif image_data.get("url"):
-                        # If URL is returned, we could download it
                         print(f"  Image URL: {image_data['url']}")
                         image_paths.append(image_data["url"])
-                    
-                    # Log revised prompt if available (DALL-E-3)
-                    if image_data.get("revised_prompt"):
-                        print(f"  Revised prompt: {image_data['revised_prompt'][:100]}...")
-                
-                # Small delay between requests to avoid rate limiting
+
                 if idx < len(scenes) - 1:
                     await asyncio.sleep(0.5)
-                    
             except Exception as e:
                 print(f"  Error generating image {idx+1}: {e}")
                 continue
-        
+
         print(f"\nSuccessfully generated {len(image_paths)}/{num_images} images")
         return image_paths
-        
     except Exception as e:
         print(f"Image generation error: {e}")
         return []
@@ -428,103 +437,68 @@ async def test_api_configuration():
     return True
 
 
-# async def generate_single_scene(
-#     story_text: str,
-#     scene_index: int,
-#     total_scenes: int,
-#     voice: str = "default"
-# ) -> Optional[Dict[str, Any]]:
-#     """
-#     Generate a single scene (image only) for SSE streaming
-    
-#     Note: Audio generation is handled separately by media_gen.py team
-    
-#     Args:
-#         story_text: Full story text
-#         scene_index: Index of this scene (0-based)
-#         total_scenes: Total number of scenes
-#         voice: Voice parameter (reserved for future audio integration)
-    
-#     Returns:
-#         Dict with scene_index, image_url, scene_text
-#     """
-#     try:
-#         print(f"🎬 Generating scene {scene_index + 1}/{total_scenes}...")
-        
-#         # Split story into scenes
-#         scenes = simple_split_story(story_text, total_scenes)
-        
-#         if scene_index >= len(scenes):
-#             print(f"⚠️ Scene index {scene_index} out of range")
-#             return None
-        
-#         scene_text = scenes[scene_index]
-        
-#         # Generate image using existing function
-#         image_url = await generate_image(
-#             prompt=scene_text,
-#             model=DEFAULT_MODEL,
-#             size=DEFAULT_SIZE,
-#             quality=DEFAULT_QUALITY
-#         )
-        
-#         result = {
-#             "scene_index": scene_index,
-#             "scene_text": scene_text,
-#             "image_url": image_url,
-#             "audio_url": "",  # Will be populated by media_gen.py team
-#             "timestamp": datetime.now().isoformat()
-#         }
-        
-#         print(f"✅ Scene {scene_index + 1} image completed: {image_url}")
-#         return result
-        
-#     except Exception as e:
-#         print(f"❌ Error generating scene {scene_index}: {e}")
-#         return None
-
-
-async def generate_image_for_page(page: Dict) -> str:
+async def generate_image_for_page(
+    page: Dict,
+    master_prompt: Optional[str] = None,
+) -> str:
     """
-    페이지 단위로 이미지 생성 (백엔드 통합용)
-    
+    페이지 단위로 이미지 생성 (백엔드 통합용).
+    master_prompt가 있으면 마스터 스타일 + 페이지 텍스트로 DALL-E 2 사용 (스타일 일관).
+
     Args:
         page: 페이지 정보 {"page": 1, "text": "..."}
-    
+        master_prompt: 선택. 동화 전체 화풍 프롬프트 (GPT-Image-1 revised_prompt)
+
     Returns:
         생성된 이미지의 경로/URL, 실패시 빈 문자열
-    
-    Example:
-        >>> page = {"page": 1, "text": "Once upon a time in a magical forest..."}
-        >>> image_url = await generate_image_for_page(page)
-        >>> print(image_url)  # "data/image_20260207_123456_abc123_0.webp"
     """
     try:
         page_num = page.get("page", 0)
         page_text = page.get("text", "")
-        
         if not page_text:
             print(f"⚠️ Page {page_num} has no text")
             return ""
-        
+
         print(f"🎨 Generating image for page {page_num}...")
         print(f"   Text: {page_text[:80]}...")
-        
-        # Generate image using Dedalus API
-        image_url = await generate_image(
-            prompt=page_text,
-            model=DEFAULT_MODEL,
-            size=DEFAULT_SIZE,
-            quality=DEFAULT_QUALITY
-        )
-        
+
+        if master_prompt:
+            combined = f"{BASE_ART_STYLE} {master_prompt}. In this scene: {page_text}"
+            response = await call_dedalus_api(
+                prompt=combined[:990],
+                model=PAGE_GEN_MODEL,
+                size="512x512",
+                quality="standard",
+                n=1,
+            )
+            if not response.get("data") or len(response["data"]) == 0:
+                print(f"❌ No image data for page {page_num}")
+                return ""
+            image_data = response["data"][0]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"image_{timestamp}_{uuid.uuid4().hex[:8]}_{page_num - 1}.{DEFAULT_OUTPUT_FORMAT}"
+            output_path = os.path.join("data", filename)
+            if image_data.get("b64_json"):
+                image_url = save_base64_image(
+                    image_data["b64_json"], output_path, DEFAULT_OUTPUT_FORMAT
+                )
+            elif image_data.get("url"):
+                image_url = image_data["url"]
+            else:
+                image_url = ""
+        else:
+            image_url = await generate_image(
+                prompt=page_text,
+                model=DEFAULT_MODEL,
+                size=DEFAULT_SIZE,
+                quality=DEFAULT_QUALITY,
+            )
+
         if image_url:
             print(f"✅ Image generated for page {page_num}: {image_url}")
         else:
             print(f"❌ Failed to generate image for page {page_num}")
-        
         return image_url
-        
     except Exception as e:
         print(f"❌ Error generating image for page: {e}")
         return ""

@@ -40,7 +40,9 @@ def generate_story(user_prompt):
                     """
                     You are a professional children’s storybook writer with 20 years of experience writing for children ages 4–8.
                     Write a whimsical, gentle, and encouraging children’s storybook with the following requirements:
-                    - 6–8 pages total.
+                    - 6 pages total.
+                    - Don't use any name for the characters.
+                    - Don't use any pronouns for the characters.
                     - Each page contains 1–2 short sentences.
                     - Clear beginning, middle, and end.
                     - Light rhyming throughout.

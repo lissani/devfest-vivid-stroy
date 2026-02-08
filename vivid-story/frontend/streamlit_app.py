@@ -11,8 +11,8 @@ import streamlit as st
 import requests
 import json
 import time
-import asyncio
-from typing import Optional, Dict, Any, Generator
+import html
+from typing import Dict, Any, Generator
 import os
 from pathlib import Path
 import base64
@@ -22,7 +22,12 @@ import base64
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # Mock mode toggle
-USE_MOCK_DATA = True  # Set to False when backend is ready
+# USE_MOCK_DATA = True  # Set to False when backend is ready
+USE_MOCK_DATA = False
+
+# Config constants
+NUM_SCENES = 6
+STREAM_TIMEOUT = 120
 
 
 # ============================================================================
@@ -78,6 +83,18 @@ At the center of the temple, Bolt found a magical treasure chest radiating with 
             "scene_text": "Inside the temple, Bolt finds magical crystals that hold the power to grant wishes.",
             "image_url": "data/image_20260207_164812_0bf65e74.webp",
             "audio_url": "data/file_example_MP3_700KB.mp3"
+        },
+        {
+            "scene_index": 4,
+            "scene_text": "Bolt shares the crystals with the forest creatures, and together they celebrate under the stars.",
+            "image_url": "data/image_20260207_164812_0bf65e74.webp",
+            "audio_url": "data/file_example_MP3_700KB.mp3"
+        },
+        {
+            "scene_index": 5,
+            "scene_text": "With the wish of harmony granted, Bolt returns home, knowing the forest will always be a friend.",
+            "image_url": "data/image_20260207_164812_0bf65e74.webp",
+            "audio_url": "data/file_example_MP3_700KB.mp3"
         }
     ]
 
@@ -113,7 +130,7 @@ def stream_from_backend(prompt: str, style: str, voice: str, num_images: int) ->
     }
 
     try:
-        response = requests.get(url, params=params, stream=True, timeout=120)
+        response = requests.get(url, params=params, stream=True, timeout=STREAM_TIMEOUT)
 
         for line in response.iter_lines():
             if line:
@@ -136,15 +153,16 @@ def stream_from_backend(prompt: str, style: str, voice: str, num_images: int) ->
 
 
 def get_file_path(filepath: str) -> str:
-    """Find file path"""
+    """Find file path. Returns path only if it points to an existing file (not a directory)."""
+    if not (filepath or "").strip():
+        return ""
     paths_to_check = [
         filepath,
         os.path.join("..", filepath),
-        os.path.join("vivid-story", filepath)
+        os.path.join("vivid-story", filepath),
     ]
-
     for path in paths_to_check:
-        if os.path.exists(path):
+        if path and os.path.isfile(path):
             return path
     return filepath
 
@@ -155,119 +173,138 @@ def get_image_as_base64(path):
     with open(path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode()
 
+
+def _image_mime(path_or_url: str) -> str:
+    """Return MIME type from file extension."""
+    ext = (path_or_url or "").lower().split("?")[0]
+    if ext.endswith(".webp"):
+        return "image/webp"
+    if ext.endswith(".png"):
+        return "image/png"
+    if ext.endswith(".gif"):
+        return "image/gif"
+    return "image/jpeg"
+
 # ============================================================================
 # UI COMPONENTS (Feel free to modify this section!)
 # ============================================================================
 
 def render_loading_placeholders(num_scenes: int):
     """
-    Render loading placeholders (empty cards)
+    Render loading placeholders (empty cards).
+    Layout: 2 scenes per row (bigger images & text for kids). 6 scenes → 3 rows × 2 cols.
     """
     st.markdown("### 🎨 Story Scenes")
     st.markdown(
-    """
+        """
     <p class="scene-helper-text">
         Scenes will appear here as they're generated…
     </p>
     """,
-    unsafe_allow_html=True
-)
+        unsafe_allow_html=True,
+    )
 
-    cols = st.columns(min(num_scenes, 4))
     placeholders = []
+    cols_per_row = 2
+    num_rows = (num_scenes + cols_per_row - 1) // cols_per_row
 
-    for i in range(num_scenes):
-        with cols[i % 4]:
-            placeholder = st.empty()
-            with placeholder.container():
-                st.markdown(f"""
-                <div style='
-                    border: 2px dashed #ccc;
-                    border-radius: 10px;
-                    padding: 20px;
-                    text-align: center;
-                    min-height: 200px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                '>
-                    <p style='color: #333;'>⏳ Scene {i+1}<br/>Waiting...</p>
-                </div>
-                """, unsafe_allow_html=True)
-            placeholders.append(placeholder)
+    for row in range(num_rows):
+        start = row * cols_per_row
+        end = min(start + cols_per_row, num_scenes)
+        cols = st.columns(cols_per_row)
+
+        for i in range(start, end):
+            with cols[i - start]:
+                placeholder = st.empty()
+                with placeholder.container():
+                    st.markdown(
+                        f"""
+                    <div class="scene-card-placeholder">
+                        <p style='color: #333;'>⏳ Scene {i+1}<br/>Waiting...</p>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+                placeholders.append(placeholder)
 
     return placeholders
 
 
-def render_story_text(story_text: str):
-    """
-    Render story text
-    """
-    st.markdown("---")
-    st.markdown("### 📖 Your Story")
 
-    st.markdown(f"""
-    <div style='
-        background-color: rgba(203, 230, 255, 0.5);
-        padding: 20px;
-        border-radius: 10px;
-    '>
-        <p style='
-            font-size: 1.1em;
-            line-height: 1.6;
-            color: #333;
-        '>{story_text.replace(chr(10), '<br/><br/>')}</p>
-    </div>
-    """, unsafe_allow_html=True)
+def _render_scene_card_content(scene_data: Dict[str, Any]):
+    """
+    Render one scene's image, caption, and audio into the current layout.
+    Shared by streaming updates and by re-render when story_complete (so story doesn’t disappear on rerun).
+    """
+    st.markdown("<div class='scene-card'>", unsafe_allow_html=True)
+    image_url = (scene_data.get('image_url') or "").strip()
+    img_src = None
+    if image_url.startswith(("http://", "https://")):
+        img_src = image_url
+    elif image_url:
+        img_path = get_file_path(image_url)
+        if img_path and os.path.isfile(img_path):
+            b64 = get_image_as_base64(img_path)
+            if b64:
+                mime = _image_mime(img_path)
+                img_src = f"data:{mime};base64,{b64}"
+    if img_src:
+        st.markdown(
+            f'<div class="scene-image-wrap"><img src="{img_src}" alt="Scene" /></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("This scene image couldn't be loaded. You can still listen to the story.")
+
+    scene_num = scene_data['scene_index'] + 1
+    scene_text_escaped = html.escape(scene_data.get('scene_text') or "")
+    st.markdown(
+        f"""
+    <p class="scene-caption">
+        <b>Scene {scene_num}</b>: {scene_text_escaped}
+    </p>
+    """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.caption("🔊 Listen to this page")
+    audio_url = (scene_data.get('audio_url') or "").strip()
+    if audio_url.startswith(("http://", "https://")):
+        st.audio(audio_url, format='audio/mp3')
+    elif audio_url:
+        audio_path = get_file_path(audio_url)
+        if audio_path and os.path.isfile(audio_path):
+            with open(audio_path, 'rb') as audio_file:
+                st.audio(audio_file.read(), format='audio/mp3')
+        else:
+            st.caption("Audio not available for this scene.")
+    else:
+        st.caption("Audio not available for this scene.")
 
 
 def render_scene_card(scene_data: Dict[str, Any], placeholder):
-    """
-    Render scene card
-    """
+    """Render scene card into a placeholder (used during streaming)."""
     with placeholder.container():
-        img_path = get_file_path(scene_data['image_url'])
-        if os.path.exists(img_path):
-            st.image(img_path, width='stretch') # Set width to 'stretch' to let the image adapt to the column width.
-        else:
-            st.warning(f"Image not found: {scene_data['image_url']}")
-
-        st.markdown(
-    f"""
-    <p class="scene-caption">
-        <b>Scene {scene_data['scene_index'] + 1}</b>: {scene_data['scene_text']}
-    </p>
-    """,
-    unsafe_allow_html=True
-)
-
-
-        audio_path = get_file_path(scene_data['audio_url'])
-        if os.path.exists(audio_path):
-            with open(audio_path, 'rb') as audio_file:
-                audio_bytes = audio_file.read()
-                st.audio(audio_bytes, format='audio/mp3')
+        _render_scene_card_content(scene_data)
 
 def render_completion_message():
     """
-    Render completion message
+    Render completion message (no balloons so it doesn't distract from reading).
     """
-    st.success("✨ Story generation complete!")
-    st.balloons()
+    st.success("✨ Your story is ready! Read and listen to each scene below.")
     st.markdown("---")
     st.markdown("### 💾 Download")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if 'final_story' in st.session_state:
-            st.download_button(
-                label="📄 Download Story (TXT)",
-                data=st.session_state.final_story,
-                file_name="vivid_story.txt",
-                mime="text/plain"
-            )
-    with col2:
-        st.button("🔗 Share Story", disabled=True, help="Coming soon!")
+    if 'final_story' in st.session_state:
+        st.download_button(
+            label="📄 Get story as text (TXT)",
+            data=st.session_state.final_story,
+            file_name="vivid_story.txt",
+            mime="text/plain"
+        )
+
+    st.markdown("---")
 
 
 # ============================================================================
@@ -283,10 +320,7 @@ def main():
 
     # --- Pre-load and encode images ---
     about_us_bg_path = get_file_path('data/AboutUsBackgroundImg.webp')
-    create_story_bg_path = get_file_path('data/CreateYourStoryBackgroundImg.webp')
-
     about_us_bg_base64 = get_image_as_base64(about_us_bg_path)
-    create_story_bg_base64 = get_image_as_base64(create_story_bg_path)
 
     # --- CUSTOM CSS ---
     st.markdown("""
@@ -356,7 +390,7 @@ def main():
     Text Area (ACTUAL INPUT)
     ================================ */
     div[data-testid="stTextArea"] textarea {
-        color: white !important;
+        color: black !important;
         border-radius: 8px;
         padding: 12px;
         border: 1px solid #ccc;
@@ -392,6 +426,13 @@ def main():
     div[data-testid="stButton"][data-key="generate_story_button_new"] button:active {
         transform: scale(0.97);
     }
+
+    /* Focus for accessibility */
+    div[data-testid="stButton"][data-key="generate_story_button_new"] button:focus-visible,
+    button:focus-visible {
+        outline: 2px solid #333;
+        outline-offset: 2px;
+    }
                 
     /* ===============================
    Story Scenes Header
@@ -401,18 +442,52 @@ def main():
         font-family: 'Patrick Hand SC', cursive;
     }
 
+    /* Scene cards: bigger for kids */
+    .scene-card {
+        padding: 1rem 0;
+        margin-bottom: 0.5rem;
+    }
+    /* Match placeholder size to typical image area (3:2) so layout doesn’t jump when image loads */
+    .scene-card-placeholder {
+        border: 2px dashed #ccc;
+        border-radius: 12px;
+        padding: 28px;
+        text-align: center;
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        background-color: #FAF4EA;
+    }
+    /* Same aspect ratio for loaded images so placeholder and image slot match */
+    .scene-image-wrap {
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        overflow: hidden;
+        border-radius: 12px;
+        background-color: #FAF4EA;
+    }
+    .scene-image-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
     .scene-caption {
-    color: #333;
-    font-size: 0.95rem;
-    margin-top: 0.5rem;
-}
-
+        color: #333;
+        font-size: 1.25rem;
+        line-height: 1.5;
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
     .scene-helper-text {
-    color: #333;
-    font-size: 0.95rem;
-    margin-top: -0.25rem;
-    margin-bottom: 1rem;
-}
+        color: #333;
+        font-size: 1.05rem;
+        margin-top: -0.25rem;
+        margin-bottom: 1rem;
+    }
 
     </style>
     """, unsafe_allow_html=True)
@@ -475,7 +550,7 @@ def main():
             )
             prompt = st.text_area(
                 label="Your Story Prompt:",
-                placeholder="Example: A brave robot exploring a magical forest",
+                placeholder="e.g. A brave robot in a magical forest",
                 height=100,
                 label_visibility="hidden",
                 key="story_prompt_input_new"
@@ -491,10 +566,18 @@ def main():
             if not prompt:
                 st.error("Please enter a story theme!")
             else:
+                if st.session_state.get("story_complete"):
+                    st.session_state["story_complete"] = False
+                if "scenes" in st.session_state:
+                    del st.session_state["scenes"]
                 start_time = time.time()
-                style, voice, num_images = "fantasy", "default", 4
-                story_container = st.empty()
-                scene_placeholders = render_loading_placeholders(num_images)
+                style, voice = "fantasy", "default"
+                num_images = NUM_SCENES
+                st.session_state["scenes"] = [None] * num_images
+                # Single story-area container so new run draws a fresh block (reduces ghosting)
+                story_container = st.container()
+                with story_container:
+                    scene_placeholders = render_loading_placeholders(num_images)
                 stream_generator = (
                     simulate_sse_streaming(prompt, style, voice, num_images)
                     if USE_MOCK_DATA
@@ -504,18 +587,52 @@ def main():
                 for event in stream_generator:
                     event_type = event.get('type')
                     if event_type == 'story':
-                        with story_container:
-                            render_story_text(event['text'])
-                        st.session_state.final_story = event['text']
+                        # Backend sends 'pages' (list of {page, text}); mock sends 'text'
+                        story_text = event.get('text')
+                        if story_text is None and event.get('pages'):
+                            story_text = "\n\n".join(
+                                p.get("text", "").strip() for p in event["pages"] if p.get("text")
+                            )
+                        if story_text:
+                            st.session_state.final_story = story_text
                     elif event_type == 'scene':
                         scene_idx = event['scene_index']
+                        st.session_state["scenes"][scene_idx] = {k: v for k, v in event.items()}
                         render_scene_card(event, scene_placeholders[scene_idx])
                     elif event_type == 'complete':
+                        st.session_state["story_complete"] = True
                         render_completion_message()
                         break
                     elif event_type == 'error':
-                        st.error(f"❌ Error: {event['message']}")
+                        msg = event.get("message", "Something went wrong.")
+                        st.error(f"Something went wrong. Please try again. ({msg})")
                         break
+
+        elif st.session_state.get("story_complete"):
+            # Re-render stored scenes so the story stays visible after any rerun
+            scenes = st.session_state.get("scenes") or []
+            st.markdown("### 🎨 Story Scenes")
+            st.markdown(
+                """
+            <p class="scene-helper-text">
+                Your story is below. Read and listen to each scene.
+            </p>
+            """,
+                unsafe_allow_html=True,
+            )
+            cols_per_row = 2
+            num_scenes = len(scenes)
+            if num_scenes > 0:
+                num_rows = (num_scenes + cols_per_row - 1) // cols_per_row
+                for row in range(num_rows):
+                    start = row * cols_per_row
+                    end = min(start + cols_per_row, num_scenes)
+                    cols = st.columns(cols_per_row)
+                    for i in range(start, end):
+                        with cols[i - start]:
+                            if scenes[i] is not None:
+                                _render_scene_card_content(scenes[i])
+            render_completion_message()
 
     # Footer
     st.markdown("---")
