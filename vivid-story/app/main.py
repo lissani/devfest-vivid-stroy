@@ -3,9 +3,11 @@ FastAPI Server - Leader
 Backend API for story generation
 Architecture: Sequential Reasoning → Parallel Media Generation → Result Formatter
 """
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import uvicorn
@@ -15,6 +17,28 @@ import json
 from datetime import datetime
 
 app = FastAPI(title="Vivid Story API")
+
+# Base URL of this API (for building public URLs to images/audio). Required when frontend is on another host (e.g. Streamlit Cloud).
+# Render: set API_BASE_URL to your Render service URL, e.g. https://vivid-story-api.onrender.com
+API_BASE_URL = (os.getenv("API_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+
+# Serve generated media so the frontend (Streamlit Cloud) can load images/audio by URL
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+if os.path.isdir(DATA_DIR):
+    app.mount("/api/files", StaticFiles(directory=DATA_DIR), name="files")
+
+
+def _to_public_media_url(relative_path: str) -> str:
+    """Convert backend-relative path (e.g. data/image_xxx.webp) to a public URL the frontend can fetch."""
+    if not (relative_path or "").strip():
+        return ""
+    if relative_path.startswith("http://") or relative_path.startswith("https://"):
+        return relative_path
+    if API_BASE_URL:
+        # path like "data/image_xxx.webp" -> URL path "/api/files/image_xxx.webp"
+        path = relative_path.replace("data/", "", 1) if relative_path.startswith("data/") else relative_path
+        return f"{API_BASE_URL}/api/files/{path}"
+    return relative_path
 
 # CORS configuration
 app.add_middleware(
@@ -326,8 +350,8 @@ async def stream_story(
                         "scene_index": page_num - 1,
                         "page": page_num,
                         "scene_text": page_text,
-                        "image_url": image_url,
-                        "audio_url": audio_url
+                        "image_url": _to_public_media_url(image_url or ""),
+                        "audio_url": _to_public_media_url(audio_url or "")
                     }
                     print(f"✅ Page {page_num} ready - sending to client")
                     yield f"data: {json.dumps({'type': 'scene', **scene_result})}\n\n"
