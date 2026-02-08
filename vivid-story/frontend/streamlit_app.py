@@ -15,6 +15,7 @@ import asyncio
 from typing import Optional, Dict, Any, Generator
 import os
 from pathlib import Path
+import base64
 
 
 # API server URL
@@ -32,11 +33,11 @@ def simulate_sse_streaming(prompt: str, style: str, voice: str, num_images: int)
     """
     Mock SSE streaming simulation
     Generates same events as actual backend SSE
-    
+
     🔒 Do not modify this function
     """
     import random
-    
+
     # 1. Send story text
     story_text = """Once upon a time, in a magical forest filled with glowing mushrooms and whispering trees, there lived a brave little robot named Bolt. Unlike other robots, Bolt had a curious heart and dreamed of adventures beyond the factory walls.
 
@@ -45,13 +46,13 @@ One sunny morning, Bolt ventured into the Enchanted Grove, where flowers sang me
 Hidden behind a magnificent waterfall, Bolt discovered a mysterious temple covered in vines and ancient symbols. The temple doors slowly opened, revealing a grand hall filled with treasures from forgotten times. Bolt's sensors detected something extraordinary within.
 
 At the center of the temple, Bolt found a magical treasure chest radiating with pure energy. Inside were glowing crystals that held the power to grant wishes. Bolt carefully took one crystal, wishing for all creatures, both robot and organic, to live together in harmony. The crystal glowed brighter, and Bolt knew the wish would come true."""
-    
+
     time.sleep(1)  # Simulate story generation time
     yield {
         "type": "story",
         "text": story_text
     }
-    
+
     # 2. Scene data (actually generated in parallel, so order is shuffled)
     scenes = [
         {
@@ -79,8 +80,8 @@ At the center of the temple, Bolt found a magical treasure chest radiating with 
             "audio_url": "data/file_example_MP3_700KB.mp3"
         }
     ]
-    
-    
+
+
     # 3. Send scenes one by one (actually sent as soon as completed)
     for scene in scenes[:num_images]:
         delay = random.uniform(1.5, 3.0)  # Random delay 1.5~3s
@@ -89,7 +90,7 @@ At the center of the temple, Bolt found a magical treasure chest radiating with 
             "type": "scene",
             **scene
         }
-    
+
     # 4. Completion signal
     time.sleep(0.5)
     yield {
@@ -100,7 +101,7 @@ At the center of the temple, Bolt found a magical treasure chest radiating with 
 def stream_from_backend(prompt: str, style: str, voice: str, num_images: int) -> Generator[Dict[str, Any], None, None]:
     """
     Receive actual backend SSE stream
-    
+
     🔒 Do not modify this function
     """
     url = f"{API_URL}/api/stream-story"
@@ -110,18 +111,18 @@ def stream_from_backend(prompt: str, style: str, voice: str, num_images: int) ->
         "voice": voice,
         "num_images": num_images
     }
-    
+
     try:
         response = requests.get(url, params=params, stream=True, timeout=120)
-        
+
         for line in response.iter_lines():
             if line:
                 line_str = line.decode('utf-8')
-                
+
                 if line_str.startswith('data: '):
                     data = json.loads(line_str[6:])  # Remove 'data: '
                     yield data
-                    
+
     except requests.exceptions.ConnectionError:
         yield {
             "type": "error",
@@ -141,150 +142,44 @@ def get_file_path(filepath: str) -> str:
         os.path.join("..", filepath),
         os.path.join("vivid-story", filepath)
     ]
-    
+
     for path in paths_to_check:
         if os.path.exists(path):
             return path
     return filepath
 
+# Function to encode image to base64
+def get_image_as_base64(path):
+    if not os.path.exists(path):
+        return "" # Return empty string if file does not exist
+    with open(path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode()
 
 # ============================================================================
 # UI COMPONENTS (Feel free to modify this section!)
 # ============================================================================
 
-def render_page_header():
-    """
-    Render page header
-    
-    TODO: Design improvements
-    - Change title font/color
-    - Add background gradient
-    - Add logo image
-    """
-    st.title("📚 Vivid Story Generator")
-    st.markdown("### AI-powered Interactive Storybooks with Real-time Streaming")
-    
-    if USE_MOCK_DATA:
-        st.info("🎭 **Mock Mode**: SSE streaming simulation mode")
-
-
-def render_sidebar():
-    """
-    Render sidebar
-    
-    TODO: Design improvements
-    - Add icons
-    - Group settings
-    - Style help section
-    """
-    with st.sidebar:
-        st.header("⚙️ Settings")
-        
-        style = st.selectbox(
-            "Story Style",
-            ["fantasy", "adventure", "educational", "bedtime"],
-            index=0
-        )
-        
-        voice = st.selectbox(
-            "Voice Selection",
-            ["default", "child", "narrator", "storyteller"],
-            index=0
-        )
-        
-        num_images = st.slider(
-            "Number of Scenes",
-            min_value=2,
-            max_value=4,
-            value=4,
-            step=1
-        )
-        
-        st.markdown("---")
-        st.markdown("#### 💡 How it Works")
-        st.markdown("""
-        **Real-time Streaming:**
-        1. 📖 Story appears first (~8s)
-        2. 🎨 Scenes appear as ready (parallel)
-        3. ⚡ No waiting for all to finish!
-        """)
-        
-        st.markdown("---")
-        st.markdown("#### 🏗️ Architecture")
-        st.markdown("""
-        **Step 1**: K2 Think
-        - Story generation
-        
-        **Step 2**: Parallel (SSE)
-        - 🎨 Images (Dedalus)
-        - 🔊 Audio (ElevenLabs)
-        """)
-    
-    return style, voice, num_images
-
-
-def render_story_input():
-    """
-    Render story input area
-    
-    TODO: Design improvements
-    - Change input box style
-    - Add example prompt buttons
-    - Show character count limit
-    """
-    col1, col2 = st.columns([3, 2])
-    
-    with col1:
-        st.subheader("📝 Create Your Story")
-        prompt = st.text_area(
-            "What story would you like to create?",
-            placeholder="Example: A brave robot exploring a magical forest",
-            height=150,
-            help="Enter a theme or idea for your story"
-        )
-        
-        generate_button = st.button(
-            "🎨 Generate Story",
-            type="primary",
-            use_container_width=True
-        )
-    
-    with col2:
-        st.subheader("ℹ️ About")
-        st.info("""
-        **Real-time Generation:**
-        
-        Stories and scenes appear as they're created, not all at once!
-        
-        Powered by:
-        - 🧠 K2 Think
-        - 🎨 Dedalus Labs
-        - 🔊 ElevenLabs
-        """)
-    
-    return prompt, generate_button
-
-
 def render_loading_placeholders(num_scenes: int):
     """
     Render loading placeholders (empty cards)
-    
-    TODO: Design improvements
-    - Add skeleton loading animation
-    - Style cards (border, shadow)
-    - Improve loading text
     """
     st.markdown("### 🎨 Story Scenes")
-    st.caption("Scenes will appear here as they're generated...")
-    
+    st.markdown(
+    """
+    <p class="scene-helper-text">
+        Scenes will appear here as they're generated…
+    </p>
+    """,
+    unsafe_allow_html=True
+)
+
     cols = st.columns(min(num_scenes, 4))
     placeholders = []
-    
+
     for i in range(num_scenes):
         with cols[i % 4]:
             placeholder = st.empty()
             with placeholder.container():
-                # TODO: Add skeleton loading UI here
                 st.markdown(f"""
                 <div style='
                     border: 2px dashed #ccc;
@@ -296,39 +191,30 @@ def render_loading_placeholders(num_scenes: int):
                     align-items: center;
                     justify-content: center;
                 '>
-                    <p style='color: #999;'>⏳ Scene {i+1}<br/>Waiting...</p>
+                    <p style='color: #333;'>⏳ Scene {i+1}<br/>Waiting...</p>
                 </div>
                 """, unsafe_allow_html=True)
             placeholders.append(placeholder)
-    
+
     return placeholders
 
 
 def render_story_text(story_text: str):
     """
     Render story text
-    
-    TODO: Design improvements
-    - Apply storybook-style font
-    - Add background image/pattern
-    - Adjust paragraph spacing
-    - Add drop cap style for first letter
     """
     st.markdown("---")
     st.markdown("### 📖 Your Story")
-    
-    # TODO: Add custom styling here
+
     st.markdown(f"""
     <div style='
-        background: linear-gradient(135deg, #fef3c7 0%, #fff 100%);
-        padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        background-color: rgba(203, 230, 255, 0.5);
+        padding: 20px;
+        border-radius: 10px;
     '>
         <p style='
             font-size: 1.1em;
-            line-height: 1.8;
-            text-align: justify;
+            line-height: 1.6;
             color: #333;
         '>{story_text.replace(chr(10), '<br/><br/>')}</p>
     </div>
@@ -338,79 +224,40 @@ def render_story_text(story_text: str):
 def render_scene_card(scene_data: Dict[str, Any], placeholder):
     """
     Render scene card
-    
-    TODO: Design improvements
-    - Add card animation (fade-in)
-    - Add image hover effect
-    - Style caption
-    - Customize audio player
     """
     with placeholder.container():
-        # TODO: Add card design here
-        
-        # Image
         img_path = get_file_path(scene_data['image_url'])
         if os.path.exists(img_path):
-            st.image(img_path, use_column_width=True)  # use_column_width for compatibility
+            st.image(img_path, width='stretch') # Set width to 'stretch' to let the image adapt to the column width.
         else:
             st.warning(f"Image not found: {scene_data['image_url']}")
-        
-        # Scene description
-        st.caption(f"**Scene {scene_data['scene_index'] + 1}**")
-        st.caption(scene_data['scene_text'])
-        
-        # Audio
+
+        st.markdown(
+    f"""
+    <p class="scene-caption">
+        <b>Scene {scene_data['scene_index'] + 1}</b>: {scene_data['scene_text']}
+    </p>
+    """,
+    unsafe_allow_html=True
+)
+
+
         audio_path = get_file_path(scene_data['audio_url'])
         if os.path.exists(audio_path):
             with open(audio_path, 'rb') as audio_file:
                 audio_bytes = audio_file.read()
                 st.audio(audio_bytes, format='audio/mp3')
 
-
-def render_progress_info(scenes_received: int, total_scenes: int, elapsed_time: float):
-    """
-    Display progress information
-    
-    TODO: Design improvements
-    - Change progress bar color
-    - Add animation effects
-    - Style timer
-    """
-    progress = scenes_received / total_scenes
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("⏱️ Elapsed", f"{elapsed_time:.1f}s")
-    
-    with col2:
-        st.metric("🎨 Scenes", f"{scenes_received}/{total_scenes}")
-    
-    with col3:
-        status = "Complete!" if scenes_received == total_scenes else "Generating..."
-        st.metric("📊 Status", status)
-    
-    st.progress(progress)
-
-
 def render_completion_message():
     """
     Render completion message
-    
-    TODO: Design improvements
-    - Add confetti animation
-    - Group download buttons
-    - Add share button
     """
     st.success("✨ Story generation complete!")
-    st.balloons()  # TODO: Can change to confetti
-    
-    # TODO: Improve download section
+    st.balloons()
     st.markdown("---")
     st.markdown("### 💾 Download")
-    
+
     col1, col2 = st.columns(2)
-    
     with col1:
         if 'final_story' in st.session_state:
             st.download_button(
@@ -419,7 +266,6 @@ def render_completion_message():
                 file_name="vivid_story.txt",
                 mime="text/plain"
             )
-    
     with col2:
         st.button("🔗 Share Story", disabled=True, help="Coming soon!")
 
@@ -434,109 +280,243 @@ def main():
         page_icon="📚",
         layout="wide"
     )
-    
-    # TODO: Add custom CSS here
+
+    # --- Pre-load and encode images ---
+    about_us_bg_path = get_file_path('data/AboutUsBackgroundImg.webp')
+    create_story_bg_path = get_file_path('data/CreateYourStoryBackgroundImg.webp')
+
+    about_us_bg_base64 = get_image_as_base64(about_us_bg_path)
+    create_story_bg_base64 = get_image_as_base64(create_story_bg_path)
+
+    # --- CUSTOM CSS ---
     st.markdown("""
     <style>
-        /* Add global styles here */
-        .stApp {
-            /* background: linear-gradient(135deg, #fef3c7 0%, #fce7f3 100%); */
-        }
+    @import url('https://fonts.googleapis.com/css2?family=Palette+Mosaic&family=Patrick+Hand+SC&display=swap');
+
+    /* ===============================
+    Global App Styling
+    ================================ */
+    .stApp {
+        background-color: #FAF4EA;
+        font-family: 'Patrick Hand SC', cursive;
+    }
+
+    /* ===============================
+    Title
+    ================================ */
+    .title h1 {
+        font-family: 'Palette Mosaic', cursive;
+        font-size: 5rem;
+        line-height: 1.1;
+        text-align: left;
+        color: #333;
+    }
+
+    /* ===============================
+    Image + Text Overlay Sections
+    ================================ */
+    .image-container {
+        position: relative;
+        width: 100%;
+        border-radius: 15px;
+        overflow: hidden;
+    }
+
+    .image-container img {
+        width: 100%;
+        display: block;
+    }
+
+    .text-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 30%;
+        bottom: 0;
+        padding: 20px;
+        margin-left: 30px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .about-us-text {
+        font-size: 1.25rem;
+        font-family: 'Patrick Hand SC', cursive;
+        color: #333;
+    }
+
+    .create-story-text {
+        font-family: 'Patrick Hand SC', cursive;
+        font-size: 1.5rem;
+        color: #333;
+    }
+
+    /* ===============================
+    Text Area (ACTUAL INPUT)
+    ================================ */
+    div[data-testid="stTextArea"] textarea {
+        color: white !important;
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid #ccc;
+        font-family: 'Patrick Hand SC', cursive;
+        font-size: 1.1rem;
+    }
+
+    /* Label (even though hidden, keeps consistency) */
+    div[data-testid="stTextArea"] label {
+        color: black !important;
+    }
+
+    /* ===============================
+    Generate Story Button
+    ================================ */
+    div[data-testid="stButton"][data-key="generate_story_button_new"] button {
+        background-color: rgba(203, 230, 255, 0.5) !important;
+        color: black !important;
+        border-radius: 8px;
+        padding: 10px 22px;
+        border: none;
+        font-family: 'Patrick Hand SC', cursive;
+        font-size: 1.1rem;
+        float: right;
+    }
+
+    /* Hover */
+    div[data-testid="stButton"][data-key="generate_story_button_new"] button:hover {
+        background-color: rgba(180, 210, 245, 0.75) !important;
+    }
+
+    /* Click */
+    div[data-testid="stButton"][data-key="generate_story_button_new"] button:active {
+        transform: scale(0.97);
+    }
+                
+    /* ===============================
+   Story Scenes Header
+    ================================ */
+    div[data-testid="stMarkdown"] h3 {
+        color: #333 !important;
+        font-family: 'Patrick Hand SC', cursive;
+    }
+
+    .scene-caption {
+    color: #333;
+    font-size: 0.95rem;
+    margin-top: 0.5rem;
+}
+
+    .scene-helper-text {
+    color: #333;
+    font-size: 0.95rem;
+    margin-top: -0.25rem;
+    margin-bottom: 1rem;
+}
+
     </style>
     """, unsafe_allow_html=True)
-    
-    # Rendering
-    render_page_header()
-    
-    # Default settings (sidebar removed)
-    style = "fantasy"
-    voice = "default"
-    num_images = 4
-    
-    # TODO: Add settings to main screen if needed
-    # style, voice, num_images = render_sidebar()  # Sidebar version
-    
-    prompt, generate_button = render_story_input()
-    
-    # Generate button clicked
-    if generate_button:
-        if not prompt:
-            st.error("Please enter a story theme!")
-            return
-        
-        # Initialize
-        start_time = time.time()
-        
-        # Story container
-        story_container = st.empty()
-        
-        st.markdown("---")
-        
-        # Progress container
-        progress_container = st.empty()
-        
-        # Create scene placeholders
-        scene_placeholders = render_loading_placeholders(num_images)
-        
-        # Receive SSE stream
-        stream_generator = (
-            simulate_sse_streaming(prompt, style, voice, num_images)
-            if USE_MOCK_DATA
-            else stream_from_backend(prompt, style, voice, num_images)
+
+
+
+    # --- LAYOUT ---
+    left_col, right_col = st.columns([1, 2])
+
+    with left_col:
+        # --- TITLE ---
+        st.markdown(
+            "<div class='title'><h1>Vivid<br>Story<br>Generator</h1></div>",
+            unsafe_allow_html=True
         )
+        st.empty() # Spacer
+
+        # --- ABOUT US ---
+        st.markdown(f"""
+        <div class="image-container">
+            <img src="data:image/webp;base64,{about_us_bg_base64}">
+            <div class="text-overlay about-us-text">
+                <p>
+                    <b>About Us:</b><br>
+                    Create your own storybook with visual illustrations and audio features!<br><br>
+                    Powered by K2 Think, Dedalus Labs, & ElevenLabs
+                </p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with right_col:
+        # --- CREATE YOUR STORY IMAGE AND STATIC TEXT ---
+        st.markdown(f"""
+        <div class="create-story-text" style="justify-content: flex-start; align-items: flex-start;">
+            <p style="margin-bottom: 0;">
+                <b>Create Your Story:</b><br>
+                What story would you like to create?
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # --- INPUT FORM (visually overlaid) ---
+        # Use a Streamlit container for the input box and button, positioned with CSS
+        with st.container():
+            st.markdown(
+                """
+                <style>
+                    .input-button-overlap {
+                        border-radius: 10px;
+                        position: relative;
+                        z-index: 1;
+                        background-color: transparent; /* Remove background color from this container itself */
+                        margin-top: -1.5rem; /* Pull up to reduce space */
+                    }
+                </style>
+                <div class="input-button-overlap">
+                """,
+                unsafe_allow_html=True
+            )
+            prompt = st.text_area(
+                label="Your Story Prompt:",
+                placeholder="Example: A brave robot exploring a magical forest",
+                height=100,
+                label_visibility="hidden",
+                key="story_prompt_input_new"
+            )
+            generate_button = st.button(
+                "Generate Story",
+                key="generate_story_button_new"
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
         
-        # Track state
-        scenes_dict = {}
-        story_text = ""
-        scenes_received = 0
-        
-        # Process events
-        for event in stream_generator:
-            event_type = event.get('type')
-            
-            # 1. Receive story text
-            if event_type == 'story':
-                story_text = event['text']
-                st.session_state.final_story = story_text
-                
-                with story_container:
-                    render_story_text(story_text)
-            
-            # 2. Receive scene
-            elif event_type == 'scene':
-                scene_idx = event['scene_index']
-                scenes_dict[scene_idx] = event
-                scenes_received += 1
-                
-                # Render scene card
-                render_scene_card(event, scene_placeholders[scene_idx])
-                
-                # Update progress
-                elapsed = time.time() - start_time
-                with progress_container:
-                    render_progress_info(scenes_received, num_images, elapsed)
-            
-            # 3. Complete
-            elif event_type == 'complete':
-                progress_container.empty()
-                render_completion_message()
-                break
-            
-            # 4. Error
-            elif event_type == 'error':
-                st.error(f"❌ Error: {event['message']}")
-                
-                if USE_MOCK_DATA:
-                    st.info("""
-                    💡 Backend server is not running, using Mock mode.
-                    
-                    To test with real API:
-                    1. `cd vivid-story`
-                    2. `python app/main.py`
-                    3. Set `USE_MOCK_DATA = False`
-                    """)
-                break
-    
+        # --- STORY GENERATION LOGIC ---
+        if generate_button:
+            if not prompt:
+                st.error("Please enter a story theme!")
+            else:
+                start_time = time.time()
+                style, voice, num_images = "fantasy", "default", 4
+                story_container = st.empty()
+                scene_placeholders = render_loading_placeholders(num_images)
+                stream_generator = (
+                    simulate_sse_streaming(prompt, style, voice, num_images)
+                    if USE_MOCK_DATA
+                    else stream_from_backend(prompt, style, voice, num_images)
+                )
+
+                for event in stream_generator:
+                    event_type = event.get('type')
+                    if event_type == 'story':
+                        with story_container:
+                            render_story_text(event['text'])
+                        st.session_state.final_story = event['text']
+                    elif event_type == 'scene':
+                        scene_idx = event['scene_index']
+                        render_scene_card(event, scene_placeholders[scene_idx])
+                    elif event_type == 'complete':
+                        render_completion_message()
+                        break
+                    elif event_type == 'error':
+                        st.error(f"❌ Error: {event['message']}")
+                        break
+
     # Footer
     st.markdown("---")
     st.markdown(
