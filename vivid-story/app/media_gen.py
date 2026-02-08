@@ -20,7 +20,7 @@ client = ElevenLabs(
 # Free tier can only use PREMADE voices, not "library" (custom/premium) voices.
 # Rachel = premade, works on free tier. See: https://elevenlabs.io/docs/api-reference/voices
 VOICE_IDS = {
-    "default": "21m00Tcm4TlvDq8ikWAM",  # Rachel (premade, free-tier compatible)
+    "default": "XJ2fW4ybq7HouelYYGcL", 
 }
 
 
