@@ -231,9 +231,16 @@ async def health_check():
 
 
 @app.get("/api/stream-story")
-async def stream_story(prompt: str, style: str = "fantasy", voice: str = "default", num_images: int = 4):
+async def stream_story(
+    prompt: str,
+    style: str = "fantasy",
+    voice: str = "default",
+    num_images: int = 4,
+    use_style_consistency: bool = False,
+):
     """
-    SSE Streaming endpoint - yields story pages and media immediately
+    SSE Streaming endpoint - yields story pages and media immediately.
+    use_style_consistency=True: GPT Image 1로 마스터 스타일 프롬프트 추출 후, DALL-E 2로 페이지별 이미지 생성 (스타일 통일).
     
     Event types:
     - story: Full story pages (JSON list)
@@ -251,6 +258,7 @@ async def stream_story(prompt: str, style: str = "fantasy", voice: str = "defaul
             print(f"Style: {style}")
             print(f"Voice: {voice}")
             print(f"Images: {num_images}")
+            print(f"Use style consistency: {use_style_consistency}")
             print(f"{'='*60}\n")
             
             # ========================================================
@@ -272,68 +280,59 @@ async def stream_story(prompt: str, style: str = "fantasy", voice: str = "defaul
             yield f"data: {json.dumps({'type': 'story', 'pages': story_pages})}\n\n"
             
             # ========================================================
-            # STEP 2: Generate media for each page in parallel
+            # STEP 1.5 (optional): 마스터 스타일 프롬프트 추출 (GPT-Image-1 revised_prompt)
             # ========================================================
-            print(f"🎨 [STEP 2] Generating media for {num_images} pages in parallel...")
+            master_prompt = None
+            if use_style_consistency:
+                from app.image_gen import generate_master_prompt
+                print("🎨 [STEP 1.5] Establishing master style prompt (GPT Image 1)...")
+                master_input = prompt
+                if story_pages and story_pages[0].get("text"):
+                    master_input = f"{prompt}. First scene: {story_pages[0]['text'][:200]}"
+                master_prompt = await generate_master_prompt(master_input)
+                if master_prompt:
+                    print("✅ Master style prompt ready")
+                else:
+                    print("⚠️ Master prompt failed, falling back to per-page generations")
+                    master_prompt = None
+            
+            # ========================================================
+            # STEP 2: 큐 형식 — 페이지 1부터 순서대로 이미지+음성 완료 시마다 즉시 프론트로 전송
+            # ========================================================
+            print(f"🎨 [STEP 2] Generating media for {num_images} pages (queue: page1 → send → page2 → send ...)")
             
             from app.image_gen import generate_image_for_page
             from app.media_gen import generate_audio_for_page
             
-            # Limit to requested number of pages
             pages_to_process = story_pages[:num_images]
             
-            # Create task for each page
-            async def process_page(page: Dict) -> Optional[Dict]:
-                """Generate image and audio for one page"""
+            for page in pages_to_process:
                 page_num = page.get("page", 0)
                 page_text = page.get("text", "")
-                
                 try:
-                    print(f"🎬 Processing page {page_num}...")
-                    
-                    # Generate image and audio in parallel
+                    print(f"🎬 Processing page {page_num} (image + audio)...")
                     image_url, audio_url = await asyncio.gather(
-                        generate_image_for_page(page),
+                        generate_image_for_page(page, master_prompt=master_prompt),
                         generate_audio_for_page(page, voice),
                         return_exceptions=True
                     )
-                    
-                    # Handle exceptions
                     if isinstance(image_url, Exception):
                         print(f"⚠️  Page {page_num} image error: {image_url}")
                         image_url = ""
-                    
                     if isinstance(audio_url, Exception):
                         print(f"⚠️  Page {page_num} audio error: {audio_url}")
                         audio_url = ""
-                    
-                    return {
-                        "scene_index": page_num - 1,  # 0-based for frontend compatibility
+                    scene_result = {
+                        "scene_index": page_num - 1,
                         "page": page_num,
                         "scene_text": page_text,
                         "image_url": image_url,
                         "audio_url": audio_url
                     }
+                    print(f"✅ Page {page_num} ready - sending to client")
+                    yield f"data: {json.dumps({'type': 'scene', **scene_result})}\n\n"
                 except Exception as e:
-                    print(f"⚠️  Page {page_num} processing error: {e}")
-                    return None
-            
-            # Create tasks for all pages
-            tasks = [process_page(page) for page in pages_to_process]
-            
-            # Use asyncio.as_completed to yield results as they finish
-            for completed_task in asyncio.as_completed(tasks):
-                try:
-                    scene_result = await completed_task
-                    
-                    if scene_result:
-                        print(f"✅ Page {scene_result['page']} ready - sending to client")
-                        
-                        # Send scene immediately when ready
-                        yield f"data: {json.dumps({'type': 'scene', **scene_result})}\n\n"
-                    
-                except Exception as e:
-                    print(f"⚠️ Scene generation error: {e}")
+                    print(f"⚠️ Page {page_num} processing error: {e}")
                     yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             
             # ========================================================
